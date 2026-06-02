@@ -1,92 +1,86 @@
 import torch
+import os
+import numpy as np
+
 from ultralytics import YOLO
 from torchvision.datasets import CIFAR10
 from torchvision import transforms
 from PIL import Image
-import numpy as np
-import os
 
-print("\n===== GENERATING FGSM ADVERSARIAL IMAGE =====\n")
+print("\n===== GENERATING FGSM DATASET =====\n")
 
-# Load trained model
+epsilon = 0.07
+
+os.makedirs(
+    "adversarial_images",
+    exist_ok=True
+)
+
 yolo_model = YOLO(
     "runs/classify/clean_baseline/weights/best.pt"
 )
 
-# Get underlying PyTorch model
 model = yolo_model.model
 model.eval()
 
-# Load CIFAR10 test dataset
 transform = transforms.ToTensor()
 
-testset = CIFAR10(
+dataset = CIFAR10(
     root="./data",
     train=False,
     download=True,
     transform=transform
 )
 
-# Select first image
-image, label = testset[0]
-
-# Add batch dimension
-image = image.unsqueeze(0)
-
-# Enable gradients
-image.requires_grad = True
-
-# Forward pass
-outputs = model(image)
-
-# YOLO classification returns a tuple
-logits = outputs[0]
-
-# Compute loss
 criterion = torch.nn.CrossEntropyLoss()
 
-target = torch.tensor([label])
+for idx in range(len(dataset)):
 
-loss = criterion(logits, target)
+    image, label = dataset[idx]
 
-# Backpropagation
-model.zero_grad()
+    image = image.unsqueeze(0)
 
-loss.backward()
+    image.requires_grad = True
 
-# FGSM
-epsilon = 0.03
+    outputs = model(image)
 
-data_grad = image.grad.data
+    logits = outputs[0]
 
-perturbed_image = image + epsilon * data_grad.sign()
+    target = torch.tensor([label])
 
-perturbed_image = torch.clamp(
-    perturbed_image,
-    0,
-    1
-)
+    loss = criterion(
+        logits,
+        target
+    )
 
-# Create folder
-os.makedirs(
-    "adversarial_images",
-    exist_ok=True
-)
+    model.zero_grad()
 
-# Convert tensor to image
-img = perturbed_image.squeeze().detach().cpu().numpy()
+    loss.backward()
 
-img = np.transpose(
-    img,
-    (1, 2, 0)
-)
+    grad = image.grad.data
 
-img = (img * 255).astype(np.uint8)
+    adv = image + epsilon * grad.sign()
 
-save_path = "adversarial_images/fgsm_example.png"
+    adv = torch.clamp(
+        adv,
+        0,
+        1
+    )
 
-Image.fromarray(img).save(save_path)
+    img = adv.squeeze().detach().cpu().numpy()
 
-print(f"Original Label: {label}")
-print(f"Epsilon: {epsilon}")
-print(f"Saved Image: {save_path}")
+    img = np.transpose(
+        img,
+        (1, 2, 0)
+    )
+
+    img = (img * 255).astype(np.uint8)
+
+    Image.fromarray(img).save(
+        f"adversarial_images/{idx}.png"
+    )
+
+    if idx % 1000 == 0:
+        print(f"Processed {idx}")
+
+print("\nFGSM dataset generated successfully.")
