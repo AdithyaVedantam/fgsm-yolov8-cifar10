@@ -3,3 +3,8 @@ __pycache__/
 runs/
 outputs/
 adversarial_images/
+detector_dataset/
+*.pyc
+*.pt
+.DS_Store
+data/
